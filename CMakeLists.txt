@@ -8,4 +8,4 @@ add_compile_options(-Wall -Wextra)
 
 include_directories(include)
 
-add_library(pagedb INTERFACE)
+add_library(pagedb src/crc32.cpp)

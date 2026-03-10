@@ -8,4 +8,4 @@ add_compile_options(-Wall -Wextra)
 
 include_directories(include)
 
-add_library(pagedb src/crc32.cpp)
+add_library(pagedb src/crc32.cpp src/disk_manager.cpp)

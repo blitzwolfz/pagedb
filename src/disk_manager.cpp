@@ -15,7 +15,7 @@ namespace pagedb {
 
 static const char MAGIC[8] = {'P', 'A', 'G', 'E', 'D', 'B', '0', '1'};
 
-static std::string errno_msg(const char* what) {
+static std::string errno_msg(const std::string& what) {
     std::string s = what;
     s += " (";
     s += strerror(errno);

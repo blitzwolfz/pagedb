@@ -16,12 +16,16 @@ struct MetaPage {
     uint32_t page_size;
     page_id_t root_page;
     uint32_t page_count;
+    page_id_t free_list_head;
+    uint32_t free_page_count;
 
     MetaPage() {
         format_version = FORMAT_VERSION;
         page_size = (uint32_t)PAGE_SIZE;
         root_page = NO_PAGE;
         page_count = 1;
+        free_list_head = NO_PAGE;
+        free_page_count = 0;
     }
 };
 

@@ -123,6 +123,8 @@ Status DiskManager::load_meta() {
     meta_.page_size = get_u32(buf + 12);
     meta_.root_page = get_u32(buf + 16);
     meta_.page_count = get_u32(buf + 20);
+    meta_.free_list_head = get_u32(buf + 24);
+    meta_.free_page_count = get_u32(buf + 28);
 
     if (meta_.format_version != FORMAT_VERSION) {
         return Status::Corruption("unsupported format version");
@@ -152,6 +154,8 @@ Status DiskManager::write_meta() {
     put_u32(buf + 12, meta_.page_size);
     put_u32(buf + 16, meta_.root_page);
     put_u32(buf + 20, meta_.page_count);
+    put_u32(buf + 24, meta_.free_list_head);
+    put_u32(buf + 28, meta_.free_page_count);
     put_u32(buf + PAGE_SIZE - 4, crc32(buf, PAGE_SIZE - 4));
     return write_at(0, buf, PAGE_SIZE);
 }

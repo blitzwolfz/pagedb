@@ -14,6 +14,8 @@ are written field by field, never as a C++ struct.
 | 12 | 4 | page size |
 | 16 | 4 | root page id of the tree, 0 if the tree is empty |
 | 20 | 4 | number of pages in the file |
+| 24 | 4 | first page of the free list, 0 if empty |
+| 28 | 4 | number of pages in the free list |
 | 4092 | 4 | crc32 of bytes 0..4091 |
 
 Unused bytes are zero.

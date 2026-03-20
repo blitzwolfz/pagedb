@@ -240,9 +240,11 @@ Status BufferPool::free_page(page_id_t id) {
     }
     PageGuard guard = r.take();
 
+    // write() takes the lock itself, so call it before locking here.
+    uint8_t* data = guard.write();
+
     std::lock_guard<std::mutex> lock(mu_);
     MetaPage& meta = disk_->meta();
-    uint8_t* data = guard.write();
     memset(data, 0, PAGE_SIZE);
     data[0] = PAGE_TYPE_FREE;
     put_u32(data + FREE_NEXT_OFFSET, meta.free_list_head);

@@ -15,6 +15,7 @@ include_directories(include)
 add_library(pagedb
   src/crc32.cpp
   src/disk_manager.cpp
+  src/buffer_pool.cpp
 )
 
 enable_testing()

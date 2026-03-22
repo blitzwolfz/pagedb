@@ -65,8 +65,8 @@ uint8_t* PageGuard::write() {
 BufferPool::BufferPool(DiskManager* disk, size_t capacity) {
     disk_ = disk;
     capacity_ = capacity;
-    if (capacity_ < 2) {
-        capacity_ = 2;
+    if (capacity_ < 1) {
+        capacity_ = 1;
     }
     mem_ = new uint8_t[capacity_ * PAGE_SIZE];
     memset(mem_, 0, capacity_ * PAGE_SIZE);

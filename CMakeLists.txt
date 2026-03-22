@@ -28,3 +28,4 @@ function(pagedb_test name)
 endfunction()
 
 pagedb_test(disk_test)
+pagedb_test(buffer_pool_test)

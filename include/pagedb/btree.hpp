@@ -1,0 +1,87 @@
+#ifndef PAGEDB_BTREE_HPP
+#define PAGEDB_BTREE_HPP
+
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include "pagedb/buffer_pool.hpp"
+#include "pagedb/page.hpp"
+#include "pagedb/status.hpp"
+
+namespace pagedb {
+
+const uint8_t PAGE_TYPE_META = 1;
+const uint8_t PAGE_TYPE_INTERNAL = 2;
+const uint8_t PAGE_TYPE_LEAF = 3;
+const uint8_t PAGE_TYPE_FREE_PAGE = 4;
+
+const size_t NODE_HEADER_SIZE = 24;
+const size_t MAX_KEY_SIZE = 64;
+const size_t MAX_VALUE_SIZE = 256;
+
+// Node header (all little endian):
+//   0  u8  page type
+//   1  u8  unused
+//   2  u16 number of cells
+//   4  u16 start of the cell area
+//   6  u16 bytes lost to removed cells
+//   8  u32 right child (internal) or next leaf (leaf)
+//   12 u64 page lsn
+//   20 u32 unused
+// After the header there is one u16 slot per cell. Cells are added from the
+// end of the page downwards.
+class Node {
+public:
+    explicit Node(uint8_t* data) : p_(data) {}
+
+    void init(uint8_t type);
+
+    uint8_t type() const { return p_[0]; }
+    bool is_leaf() const { return p_[0] == PAGE_TYPE_LEAF; }
+    int count() const { return (int)get_u16(p_ + 2); }
+    uint16_t cell_area() const { return get_u16(p_ + 4); }
+    uint16_t dead_bytes() const { return get_u16(p_ + 6); }
+    page_id_t extra() const { return get_u32(p_ + 8); }
+    uint64_t lsn() const { return get_u64(p_ + 12); }
+
+    void set_count(int n) { put_u16(p_ + 2, (uint16_t)n); }
+    void set_cell_area(uint16_t v) { put_u16(p_ + 4, v); }
+    void set_dead_bytes(uint16_t v) { put_u16(p_ + 6, v); }
+    void set_extra(page_id_t v) { put_u32(p_ + 8, v); }
+    void set_lsn(uint64_t v) { put_u64(p_ + 12, v); }
+
+    uint16_t slot(int i) const { return get_u16(p_ + NODE_HEADER_SIZE + 2 * i); }
+    void set_slot(int i, uint16_t off) { put_u16(p_ + NODE_HEADER_SIZE + 2 * i, off); }
+
+    std::string_view key_at(int i) const;
+    std::string_view value_at(int i) const;
+    page_id_t child_at(int i) const;
+    void set_child_at(int i, page_id_t child);
+
+    // Index of the first key that is >= the given key. exact is set when the
+    // key at that index is the same key.
+    int lower_bound(std::string_view key, bool* exact) const;
+
+    size_t free_space() const;
+    size_t used_space() const;
+    void compact();
+
+    bool insert_leaf_cell(int idx, std::string_view key, std::string_view value);
+    bool insert_internal_cell(int idx, std::string_view key, page_id_t child);
+    void remove_cell(int idx);
+
+    uint8_t* data() { return p_; }
+
+private:
+    size_t cell_size(int i) const;
+    uint8_t* cell(int i) const { return p_ + slot(i); }
+
+    uint8_t* p_;
+};
+
+int compare_keys(std::string_view a, std::string_view b);
+
+}  // namespace pagedb
+
+#endif

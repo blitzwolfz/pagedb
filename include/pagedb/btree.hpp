@@ -82,6 +82,30 @@ private:
 
 int compare_keys(std::string_view a, std::string_view b);
 
+struct KVPair {
+    std::string key;
+    std::string value;
+};
+
+// The tree itself. The root page id lives in the meta page so it survives a
+// restart. All pages come from the buffer pool.
+class BTree {
+public:
+    BTree(DiskManager* disk, BufferPool* pool) : disk_(disk), pool_(pool) {}
+
+    Status get(std::string_view key, std::string* out, bool* found);
+    Status insert(std::string_view key, std::string_view value);
+
+    page_id_t root() const { return disk_->meta().root_page; }
+
+private:
+    Status insert_at(page_id_t pid, std::string_view key, std::string_view value,
+                     bool* split, std::string* sep_key, page_id_t* right_page);
+
+    DiskManager* disk_;
+    BufferPool* pool_;
+};
+
 }  // namespace pagedb
 
 #endif

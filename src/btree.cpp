@@ -172,4 +172,121 @@ void Node::remove_cell(int idx) {
     set_dead_bytes((uint16_t)(dead_bytes() + sz));
 }
 
+Status BTree::get(std::string_view key, std::string* out, bool* found) {
+    *found = false;
+    page_id_t pid = disk_->meta().root_page;
+    if (pid == NO_PAGE) {
+        return Status::Ok();
+    }
+
+    while (true) {
+        Result<PageGuard> r = pool_->fetch(pid);
+        if (!r.ok()) {
+            return r.status();
+        }
+        PageGuard guard = r.take();
+        Node node((uint8_t*)guard.read());
+
+        bool exact = false;
+        int idx = node.lower_bound(key, &exact);
+        if (node.is_leaf()) {
+            if (exact) {
+                std::string_view v = node.value_at(idx);
+                out->assign(v.data(), v.size());
+                *found = true;
+            }
+            return Status::Ok();
+        }
+
+        // Keys that are equal to a separator live in the right subtree.
+        if (exact) {
+            idx++;
+        }
+        if (idx == node.count()) {
+            pid = node.extra();
+        } else {
+            pid = node.child_at(idx);
+        }
+        if (pid == NO_PAGE) {
+            return Status::Corruption("internal node points at page 0");
+        }
+    }
+}
+
+Status BTree::insert(std::string_view key, std::string_view value) {
+    if (key.size() < 1 || key.size() > MAX_KEY_SIZE) {
+        return Status::InvalidArgument("key length must be 1 to 64 bytes");
+    }
+    if (value.size() > MAX_VALUE_SIZE) {
+        return Status::InvalidArgument("value length must be 0 to 256 bytes");
+    }
+
+    MetaPage& meta = disk_->meta();
+    if (meta.root_page == NO_PAGE) {
+        Result<PageGuard> r = pool_->new_page();
+        if (!r.ok()) {
+            return r.status();
+        }
+        PageGuard guard = r.take();
+        Node node(guard.write());
+        node.init(PAGE_TYPE_LEAF);
+        meta.root_page = guard.page_id();
+    }
+
+    bool split = false;
+    std::string sep_key;
+    page_id_t right = NO_PAGE;
+    Status s = insert_at(meta.root_page, key, value, &split, &sep_key, &right);
+    if (!s.ok()) {
+        return s;
+    }
+    if (split) {
+        return Status::Internal("root split is not implemented yet");
+    }
+    return Status::Ok();
+}
+
+Status BTree::insert_at(page_id_t pid, std::string_view key, std::string_view value,
+                        bool* split, std::string* sep_key, page_id_t* right_page) {
+    *split = false;
+
+    Result<PageGuard> r = pool_->fetch(pid);
+    if (!r.ok()) {
+        return r.status();
+    }
+    PageGuard guard = r.take();
+    Node node(guard.write());
+
+    bool exact = false;
+    int idx = node.lower_bound(key, &exact);
+
+    if (node.is_leaf()) {
+        if (exact) {
+            node.remove_cell(idx);
+        }
+        if (!node.insert_leaf_cell(idx, key, value)) {
+            return Status::Internal("leaf split is not implemented yet");
+        }
+        return Status::Ok();
+    }
+
+    if (exact) {
+        idx++;
+    }
+    page_id_t child = (idx == node.count()) ? node.extra() : node.child_at(idx);
+
+    bool child_split = false;
+    std::string child_sep;
+    page_id_t child_right = NO_PAGE;
+    guard.drop();
+    Status s = insert_at(child, key, value, &child_split, &child_sep, &child_right);
+    if (!s.ok()) {
+        return s;
+    }
+    if (!child_split) {
+        return Status::Ok();
+    }
+    return Status::Internal("internal split is not implemented yet");
+}
+
 }  // namespace pagedb

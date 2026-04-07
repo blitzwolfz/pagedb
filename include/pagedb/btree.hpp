@@ -101,6 +101,12 @@ public:
 private:
     Status insert_at(page_id_t pid, std::string_view key, std::string_view value,
                      bool* split, std::string* sep_key, page_id_t* right_page);
+    Status split_leaf(Node& node, int idx, std::string_view key,
+                      std::string_view value, std::string* sep_key,
+                      page_id_t* right_page);
+    Status split_internal(Node& node, int idx, std::string_view key,
+                          page_id_t left_child, page_id_t right_child,
+                          std::string* sep_key, page_id_t* right_page);
 
     DiskManager* disk_;
     BufferPool* pool_;

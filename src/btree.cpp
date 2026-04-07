@@ -241,7 +241,17 @@ Status BTree::insert(std::string_view key, std::string_view value) {
         return s;
     }
     if (split) {
-        return Status::Internal("root split is not implemented yet");
+        // The old root was split in two, so we need a new root above it.
+        Result<PageGuard> r = pool_->new_page();
+        if (!r.ok()) {
+            return r.status();
+        }
+        PageGuard guard = r.take();
+        Node root(guard.write());
+        root.init(PAGE_TYPE_INTERNAL);
+        root.insert_internal_cell(0, sep_key, meta.root_page);
+        root.set_extra(right);
+        meta.root_page = guard.page_id();
     }
     return Status::Ok();
 }
@@ -265,7 +275,8 @@ Status BTree::insert_at(page_id_t pid, std::string_view key, std::string_view va
             node.remove_cell(idx);
         }
         if (!node.insert_leaf_cell(idx, key, value)) {
-            return Status::Internal("leaf split is not implemented yet");
+            *split = true;
+            return split_leaf(node, idx, key, value, sep_key, right_page);
         }
         return Status::Ok();
     }
@@ -286,7 +297,169 @@ Status BTree::insert_at(page_id_t pid, std::string_view key, std::string_view va
     if (!child_split) {
         return Status::Ok();
     }
-    return Status::Internal("internal split is not implemented yet");
+
+    // The child was split, so this node gets one more separator key.
+    Result<PageGuard> r2 = pool_->fetch(pid);
+    if (!r2.ok()) {
+        return r2.status();
+    }
+    PageGuard parent_guard = r2.take();
+    Node parent(parent_guard.write());
+
+    bool exact2 = false;
+    idx = parent.lower_bound(key, &exact2);
+    if (exact2) {
+        idx++;
+    }
+
+    bool was_extra = (idx == parent.count());
+    if (parent.insert_internal_cell(idx, child_sep, child)) {
+        if (was_extra) {
+            parent.set_extra(child_right);
+        } else {
+            parent.set_child_at(idx + 1, child_right);
+        }
+        return Status::Ok();
+    }
+
+    *split = true;
+    return split_internal(parent, idx, child_sep, child, child_right, sep_key,
+                          right_page);
+}
+
+Status BTree::split_leaf(Node& node, int idx, std::string_view key,
+                         std::string_view value, std::string* sep_key,
+                         page_id_t* right_page) {
+    int n = node.count();
+    std::vector<KVPair> all;
+    all.reserve((size_t)n + 1);
+    for (int i = 0; i < n; i++) {
+        if (i == idx) {
+            KVPair nw;
+            nw.key = std::string(key);
+            nw.value = std::string(value);
+            all.push_back(nw);
+        }
+        KVPair kv;
+        std::string_view k = node.key_at(i);
+        std::string_view v = node.value_at(i);
+        kv.key = std::string(k);
+        kv.value = std::string(v);
+        all.push_back(kv);
+    }
+    if (idx >= n) {
+        KVPair nw;
+        nw.key = std::string(key);
+        nw.value = std::string(value);
+        all.push_back(nw);
+    }
+
+    size_t total = 0;
+    for (size_t i = 0; i < all.size(); i++) {
+        total += 6 + all[i].key.size() + all[i].value.size();
+    }
+
+    size_t acc = 0;
+    size_t mid = 0;
+    for (size_t i = 0; i < all.size(); i++) {
+        acc += 6 + all[i].key.size() + all[i].value.size();
+        if (acc * 2 >= total) {
+            mid = i + 1;
+            break;
+        }
+    }
+    if (mid < 1) {
+        mid = 1;
+    }
+    if (mid >= all.size()) {
+        mid = all.size() - 1;
+    }
+
+    Result<PageGuard> r = pool_->new_page();
+    if (!r.ok()) {
+        return r.status();
+    }
+    PageGuard guard = r.take();
+    Node right(guard.write());
+    right.init(PAGE_TYPE_LEAF);
+    right.set_extra(node.extra());
+    for (size_t i = mid; i < all.size(); i++) {
+        if (!right.insert_leaf_cell((int)(i - mid), all[i].key, all[i].value)) {
+            return Status::Internal("right half does not fit after a leaf split");
+        }
+    }
+
+    node.init(PAGE_TYPE_LEAF);
+    node.set_extra(guard.page_id());
+    for (size_t i = 0; i < mid; i++) {
+        if (!node.insert_leaf_cell((int)i, all[i].key, all[i].value)) {
+            return Status::Internal("left half does not fit after a leaf split");
+        }
+    }
+
+    *sep_key = all[mid].key;
+    *right_page = guard.page_id();
+    return Status::Ok();
+}
+
+struct InternalEntry {
+    std::string key;
+    page_id_t child;
+};
+
+Status BTree::split_internal(Node& node, int idx, std::string_view key,
+                             page_id_t left_child, page_id_t right_child,
+                             std::string* sep_key, page_id_t* right_page) {
+    int n = node.count();
+    std::vector<InternalEntry> all;
+    all.reserve((size_t)n + 1);
+    for (int i = 0; i < n; i++) {
+        InternalEntry e;
+        e.key = std::string(node.key_at(i));
+        e.child = node.child_at(i);
+        all.push_back(e);
+    }
+    page_id_t last_child = node.extra();
+
+    InternalEntry added;
+    added.key = std::string(key);
+    added.child = left_child;
+    all.insert(all.begin() + idx, added);
+    if ((size_t)idx + 1 < all.size()) {
+        all[idx + 1].child = right_child;
+    } else {
+        last_child = right_child;
+    }
+
+    size_t mid = all.size() / 2;
+    std::string up_key = all[mid].key;
+    page_id_t left_last = all[mid].child;
+
+    Result<PageGuard> r = pool_->new_page();
+    if (!r.ok()) {
+        return r.status();
+    }
+    PageGuard guard = r.take();
+    Node right(guard.write());
+    right.init(PAGE_TYPE_INTERNAL);
+    right.set_extra(last_child);
+    for (size_t i = mid + 1; i < all.size(); i++) {
+        if (!right.insert_internal_cell((int)(i - mid - 1), all[i].key, all[i].child)) {
+            return Status::Internal("right half does not fit after an internal split");
+        }
+    }
+
+    node.init(PAGE_TYPE_INTERNAL);
+    node.set_extra(left_last);
+    for (size_t i = 0; i < mid; i++) {
+        if (!node.insert_internal_cell((int)i, all[i].key, all[i].child)) {
+            return Status::Internal("left half does not fit after an internal split");
+        }
+    }
+
+    *sep_key = up_key;
+    *right_page = guard.page_id();
+    return Status::Ok();
 }
 
 }  // namespace pagedb

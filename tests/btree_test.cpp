@@ -73,11 +73,80 @@ static void test_bad_sizes(const std::string& path) {
     CHECK_OK(dm.close());
 }
 
+static std::string make_key(int i) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "key%08d", i);
+    return std::string(buf);
+}
+
+static void test_many_keys(const std::string& path) {
+    const int N = 20000;
+    DiskManager dm;
+    CHECK_OK(dm.open(path));
+    BufferPool pool(&dm, 64);
+    BTree tree(&dm, &pool);
+
+    for (int i = 0; i < N; i++) {
+        put(tree, make_key(i), "value_" + std::to_string(i));
+    }
+    for (int i = 0; i < N; i++) {
+        expect(tree, make_key(i), "value_" + std::to_string(i));
+    }
+    expect_missing(tree, make_key(N + 1));
+
+    CHECK_OK(pool.flush_all());
+    CHECK_OK(dm.close());
+
+    DiskManager dm2;
+    CHECK_OK(dm2.open(path));
+    BufferPool pool2(&dm2, 64);
+    BTree tree2(&dm2, &pool2);
+    for (int i = 0; i < N; i += 7) {
+        expect(tree2, make_key(i), "value_" + std::to_string(i));
+    }
+    CHECK_OK(dm2.close());
+}
+
+static void test_random_order(const std::string& path) {
+    const int N = 5000;
+    DiskManager dm;
+    CHECK_OK(dm.open(path));
+    BufferPool pool(&dm, 32);
+    BTree tree(&dm, &pool);
+
+    unsigned seed = 12345;
+    std::vector<int> order;
+    for (int i = 0; i < N; i++) {
+        order.push_back(i);
+    }
+    for (int i = N - 1; i > 0; i--) {
+        seed = seed * 1103515245u + 12345u;
+        int j = (int)((seed >> 16) % (unsigned)(i + 1));
+        int t = order[i];
+        order[i] = order[j];
+        order[j] = t;
+    }
+
+    for (int i = 0; i < N; i++) {
+        put(tree, make_key(order[i]), "v" + std::to_string(order[i]));
+    }
+    for (int i = 0; i < N; i++) {
+        expect(tree, make_key(i), "v" + std::to_string(i));
+    }
+
+    CHECK_OK(pool.flush_all());
+    CHECK_OK(dm.close());
+}
+
 int main() {
     std::string path = temp_path("btree");
     test_small_tree(path);
     remove_db(path);
     test_bad_sizes(path);
+    remove_db(path);
+    test_many_keys(path);
+    remove_db(path);
+    test_random_order(path);
     remove_db(path);
     printf("btree_test ok\n");
     return 0;

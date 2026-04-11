@@ -138,6 +138,46 @@ static void test_random_order(const std::string& path) {
     CHECK_OK(dm.close());
 }
 
+static void test_scan(const std::string& path) {
+    const int N = 3000;
+    DiskManager dm;
+    CHECK_OK(dm.open(path));
+    BufferPool pool(&dm, 32);
+    BTree tree(&dm, &pool);
+
+    for (int i = 0; i < N; i++) {
+        put(tree, make_key(i), "v" + std::to_string(i));
+    }
+
+    std::vector<KVPair> out;
+    CHECK_OK(tree.scan(make_key(10), make_key(20), &out));
+    CHECK(out.size() == 10);
+    for (int i = 0; i < 10; i++) {
+        CHECK(out[(size_t)i].key == make_key(10 + i));
+        CHECK(out[(size_t)i].value == "v" + std::to_string(10 + i));
+    }
+
+    // a range that crosses many leaves
+    CHECK_OK(tree.scan(make_key(0), make_key(N), &out));
+    CHECK(out.size() == (size_t)N);
+    for (int i = 0; i < N; i++) {
+        CHECK(out[(size_t)i].key == make_key(i));
+    }
+
+    // start after end gives nothing
+    CHECK_OK(tree.scan(make_key(20), make_key(10), &out));
+    CHECK(out.size() == 0);
+
+    // start and end outside the data
+    CHECK_OK(tree.scan("a", "z", &out));
+    CHECK(out.size() == (size_t)N);
+    CHECK_OK(tree.scan("zzz", "zzzz", &out));
+    CHECK(out.size() == 0);
+
+    CHECK_OK(pool.flush_all());
+    CHECK_OK(dm.close());
+}
+
 int main() {
     std::string path = temp_path("btree");
     test_small_tree(path);
@@ -147,6 +187,8 @@ int main() {
     test_many_keys(path);
     remove_db(path);
     test_random_order(path);
+    remove_db(path);
+    test_scan(path);
     remove_db(path);
     printf("btree_test ok\n");
     return 0;

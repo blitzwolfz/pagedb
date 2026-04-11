@@ -96,6 +96,9 @@ public:
     Status get(std::string_view key, std::string* out, bool* found);
     Status insert(std::string_view key, std::string_view value);
 
+    Status scan(std::string_view start, std::string_view end,
+                std::vector<KVPair>* out);
+
     page_id_t root() const { return disk_->meta().root_page; }
 
 private:
@@ -104,6 +107,7 @@ private:
     Status split_leaf(Node& node, int idx, std::string_view key,
                       std::string_view value, std::string* sep_key,
                       page_id_t* right_page);
+    Status find_leaf(std::string_view key, PageGuard* leaf_out);
     Status split_internal(Node& node, int idx, std::string_view key,
                           page_id_t left_child, page_id_t right_child,
                           std::string* sep_key, page_id_t* right_page);

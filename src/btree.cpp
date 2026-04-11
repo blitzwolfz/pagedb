@@ -213,6 +213,93 @@ Status BTree::get(std::string_view key, std::string* out, bool* found) {
     }
 }
 
+// Walks down to the leaf that would hold the key.
+Status BTree::find_leaf(std::string_view key, PageGuard* leaf_out) {
+    page_id_t pid = disk_->meta().root_page;
+    if (pid == NO_PAGE) {
+        return Status::NotFound("tree is empty");
+    }
+
+    while (true) {
+        Result<PageGuard> r = pool_->fetch(pid);
+        if (!r.ok()) {
+            return r.status();
+        }
+        PageGuard guard = r.take();
+        Node node((uint8_t*)guard.read());
+        if (node.is_leaf()) {
+            *leaf_out = std::move(guard);
+            return Status::Ok();
+        }
+
+        bool exact = false;
+        int idx = node.lower_bound(key, &exact);
+        if (exact) {
+            idx++;
+        }
+        if (idx == node.count()) {
+            pid = node.extra();
+        } else {
+            pid = node.child_at(idx);
+        }
+        if (pid == NO_PAGE) {
+            return Status::Corruption("internal node points at page 0");
+        }
+    }
+}
+
+Status BTree::scan(std::string_view start, std::string_view end,
+                   std::vector<KVPair>* out) {
+    out->clear();
+    if (compare_keys(start, end) >= 0) {
+        return Status::Ok();
+    }
+    if (disk_->meta().root_page == NO_PAGE) {
+        return Status::Ok();
+    }
+
+    PageGuard leaf;
+    Status s = find_leaf(start, &leaf);
+    if (!s.ok()) {
+        if (s.code() == Code::NotFound) {
+            return Status::Ok();
+        }
+        return s;
+    }
+
+    bool exact = false;
+    Node node((uint8_t*)leaf.read());
+    int idx = node.lower_bound(start, &exact);
+
+    while (true) {
+        Node cur((uint8_t*)leaf.read());
+        int n = cur.count();
+        for (int i = idx; i < n; i++) {
+            std::string_view k = cur.key_at(i);
+            if (compare_keys(k, end) >= 0) {
+                return Status::Ok();
+            }
+            KVPair kv;
+            kv.key = std::string(k);
+            std::string_view v = cur.value_at(i);
+            kv.value = std::string(v);
+            out->push_back(kv);
+        }
+
+        page_id_t next = cur.extra();
+        if (next == NO_PAGE) {
+            return Status::Ok();
+        }
+        leaf.drop();
+        Result<PageGuard> r = pool_->fetch(next);
+        if (!r.ok()) {
+            return r.status();
+        }
+        leaf = r.take();
+        idx = 0;
+    }
+}
+
 Status BTree::insert(std::string_view key, std::string_view value) {
     if (key.size() < 1 || key.size() > MAX_KEY_SIZE) {
         return Status::InvalidArgument("key length must be 1 to 64 bytes");

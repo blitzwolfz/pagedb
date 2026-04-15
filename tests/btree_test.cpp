@@ -93,6 +93,7 @@ static void test_many_keys(const std::string& path) {
         expect(tree, make_key(i), "value_" + std::to_string(i));
     }
     expect_missing(tree, make_key(N + 1));
+    CHECK_OK(tree.check());
 
     CHECK_OK(pool.flush_all());
     CHECK_OK(dm.close());
@@ -133,6 +134,7 @@ static void test_random_order(const std::string& path) {
     for (int i = 0; i < N; i++) {
         expect(tree, make_key(i), "v" + std::to_string(i));
     }
+    CHECK_OK(tree.check());
 
     CHECK_OK(pool.flush_all());
     CHECK_OK(dm.close());

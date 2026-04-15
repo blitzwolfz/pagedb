@@ -414,6 +414,118 @@ Status BTree::insert_at(page_id_t pid, std::string_view key, std::string_view va
                           right_page);
 }
 
+Status BTree::check() {
+    page_id_t root = disk_->meta().root_page;
+    if (root == NO_PAGE) {
+        return Status::Ok();
+    }
+    int leaf_level = -1;
+    Status s = check_node(root, 0, 0, 0, &leaf_level);
+    if (!s.ok()) {
+        return s;
+    }
+    return check_leaf_chain();
+}
+
+Status BTree::check_node(page_id_t pid, int level, const std::string* lo,
+                         const std::string* hi, int* leaf_level) {
+    Result<PageGuard> r = pool_->fetch(pid);
+    if (!r.ok()) {
+        return r.status();
+    }
+    PageGuard guard = r.take();
+    Node node((uint8_t*)guard.read());
+
+    if (node.type() != PAGE_TYPE_LEAF && node.type() != PAGE_TYPE_INTERNAL) {
+        return Status::Corruption("page " + std::to_string(pid) + " is not a node");
+    }
+
+    int n = node.count();
+    for (int i = 0; i < n; i++) {
+        std::string_view k = node.key_at(i);
+        if (i > 0 && compare_keys(node.key_at(i - 1), k) >= 0) {
+            return Status::Corruption("keys are not sorted in page " +
+                                      std::to_string(pid));
+        }
+        if (lo != 0 && compare_keys(k, *lo) < 0) {
+            return Status::Corruption("key is smaller than the separator above it");
+        }
+        if (hi != 0 && compare_keys(k, *hi) >= 0) {
+            return Status::Corruption("key is bigger than the separator above it");
+        }
+    }
+
+    if (node.is_leaf()) {
+        if (*leaf_level == -1) {
+            *leaf_level = level;
+        } else if (*leaf_level != level) {
+            return Status::Corruption("leaves are not all at the same depth");
+        }
+        return Status::Ok();
+    }
+
+    if (n == 0) {
+        return Status::Corruption("internal page " + std::to_string(pid) +
+                                  " has no keys");
+    }
+
+    std::vector<std::string> keys;
+    std::vector<page_id_t> children;
+    for (int i = 0; i < n; i++) {
+        keys.push_back(std::string(node.key_at(i)));
+        children.push_back(node.child_at(i));
+    }
+    page_id_t last = node.extra();
+    guard.drop();
+
+    for (int i = 0; i < n; i++) {
+        const std::string* child_lo = (i == 0) ? lo : &keys[(size_t)i - 1];
+        Status s = check_node(children[(size_t)i], level + 1, child_lo, &keys[(size_t)i],
+                              leaf_level);
+        if (!s.ok()) {
+            return s;
+        }
+    }
+    if (last == NO_PAGE) {
+        return Status::Corruption("internal page has no right child");
+    }
+    return check_node(last, level + 1, &keys[(size_t)n - 1], hi, leaf_level);
+}
+
+// Walks the leaves from left to right and checks that the keys only go up.
+Status BTree::check_leaf_chain() {
+    PageGuard leaf;
+    Status s = find_leaf("", &leaf);
+    if (!s.ok()) {
+        return s;
+    }
+
+    std::string prev;
+    bool has_prev = false;
+    while (true) {
+        Node node((uint8_t*)leaf.read());
+        int n = node.count();
+        for (int i = 0; i < n; i++) {
+            std::string k = std::string(node.key_at(i));
+            if (has_prev && compare_keys(prev, k) >= 0) {
+                return Status::Corruption("leaf chain is out of order at " + k);
+            }
+            prev = k;
+            has_prev = true;
+        }
+        page_id_t next = node.extra();
+        if (next == NO_PAGE) {
+            return Status::Ok();
+        }
+        leaf.drop();
+        Result<PageGuard> r = pool_->fetch(next);
+        if (!r.ok()) {
+            return r.status();
+        }
+        leaf = r.take();
+    }
+}
+
 Status BTree::split_leaf(Node& node, int idx, std::string_view key,
                          std::string_view value, std::string* sep_key,
                          page_id_t* right_page) {

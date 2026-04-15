@@ -99,6 +99,10 @@ public:
     Status scan(std::string_view start, std::string_view end,
                 std::vector<KVPair>* out);
 
+    // Walks the whole tree and checks the rules a B+ tree has to follow.
+    // Only used by the tests.
+    Status check();
+
     page_id_t root() const { return disk_->meta().root_page; }
 
 private:
@@ -108,6 +112,9 @@ private:
                       std::string_view value, std::string* sep_key,
                       page_id_t* right_page);
     Status find_leaf(std::string_view key, PageGuard* leaf_out);
+    Status check_node(page_id_t pid, int level, const std::string* lo,
+                      const std::string* hi, int* leaf_level);
+    Status check_leaf_chain();
     Status split_internal(Node& node, int idx, std::string_view key,
                           page_id_t left_child, page_id_t right_child,
                           std::string* sep_key, page_id_t* right_page);

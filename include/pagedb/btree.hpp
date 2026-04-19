@@ -96,6 +96,7 @@ public:
     Status get(std::string_view key, std::string* out, bool* found);
     Status insert(std::string_view key, std::string_view value);
 
+    Status remove(std::string_view key);
     Status scan(std::string_view start, std::string_view end,
                 std::vector<KVPair>* out);
 

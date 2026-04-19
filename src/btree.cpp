@@ -343,6 +343,30 @@ Status BTree::insert(std::string_view key, std::string_view value) {
     return Status::Ok();
 }
 
+Status BTree::remove(std::string_view key) {
+    if (key.size() < 1 || key.size() > MAX_KEY_SIZE) {
+        return Status::InvalidArgument("key length must be 1 to 64 bytes");
+    }
+
+    PageGuard leaf;
+    Status s = find_leaf(key, &leaf);
+    if (!s.ok()) {
+        if (s.code() == Code::NotFound) {
+            return Status::NotFound("key does not exist");
+        }
+        return s;
+    }
+
+    Node node(leaf.write());
+    bool exact = false;
+    int idx = node.lower_bound(key, &exact);
+    if (!exact) {
+        return Status::NotFound("key does not exist");
+    }
+    node.remove_cell(idx);
+    return Status::Ok();
+}
+
 Status BTree::insert_at(page_id_t pid, std::string_view key, std::string_view value,
                         bool* split, std::string* sep_key, page_id_t* right_page) {
     *split = false;

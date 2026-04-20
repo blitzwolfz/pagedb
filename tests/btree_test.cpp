@@ -180,6 +180,39 @@ static void test_scan(const std::string& path) {
     CHECK_OK(dm.close());
 }
 
+static void test_delete(const std::string& path) {
+    const int N = 2000;
+    DiskManager dm;
+    CHECK_OK(dm.open(path));
+    BufferPool pool(&dm, 32);
+    BTree tree(&dm, &pool);
+
+    for (int i = 0; i < N; i++) {
+        put(tree, make_key(i), "v" + std::to_string(i));
+    }
+    for (int i = 0; i < N; i += 2) {
+        CHECK_OK(tree.remove(make_key(i)));
+    }
+    CHECK_CODE(tree.remove(make_key(0)), Code::NotFound);
+    CHECK_CODE(tree.remove("nothing"), Code::NotFound);
+
+    for (int i = 0; i < N; i++) {
+        if (i % 2 == 0) {
+            expect_missing(tree, make_key(i));
+        } else {
+            expect(tree, make_key(i), "v" + std::to_string(i));
+        }
+    }
+    CHECK_OK(tree.check());
+
+    std::vector<KVPair> out;
+    CHECK_OK(tree.scan("", "zzz", &out));
+    CHECK(out.size() == (size_t)N / 2);
+
+    CHECK_OK(pool.flush_all());
+    CHECK_OK(dm.close());
+}
+
 int main() {
     std::string path = temp_path("btree");
     test_small_tree(path);
@@ -191,6 +224,8 @@ int main() {
     test_random_order(path);
     remove_db(path);
     test_scan(path);
+    remove_db(path);
+    test_delete(path);
     remove_db(path);
     printf("btree_test ok\n");
     return 0;

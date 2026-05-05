@@ -113,6 +113,12 @@ private:
                       std::string_view value, std::string* sep_key,
                       page_id_t* right_page);
     Status find_leaf(std::string_view key, PageGuard* leaf_out);
+    Status remove_at(page_id_t pid, std::string_view key, bool* underflow);
+    Status fix_child(Node& parent, int idx);
+    Status borrow_left(Node& parent, int idx, bool* done);
+    Status borrow_right(Node& parent, int idx, bool* done);
+    Status merge_children(Node& parent, int j);
+    Status shrink_root();
     Status check_node(page_id_t pid, int level, const std::string* lo,
                       const std::string* hi, int* leaf_level);
     Status check_leaf_chain();

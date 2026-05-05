@@ -343,28 +343,374 @@ Status BTree::insert(std::string_view key, std::string_view value) {
     return Status::Ok();
 }
 
+// A node that holds less than this many bytes is too empty and is either
+// filled up from a sibling or merged with one.
+static const size_t NODE_CAPACITY = PAGE_SIZE - NODE_HEADER_SIZE;
+static const size_t MIN_FILL = NODE_CAPACITY / 2;
+
+static page_id_t child_ptr(Node& n, int i) {
+    if (i == n.count()) {
+        return n.extra();
+    }
+    return n.child_at(i);
+}
+
+static void set_child_ptr(Node& n, int i, page_id_t v) {
+    if (i == n.count()) {
+        n.set_extra(v);
+    } else {
+        n.set_child_at(i, v);
+    }
+}
+
+// A separator key can only be replaced when the new key still fits.
+static bool can_replace_key(Node& parent, int i, std::string_view new_key) {
+    size_t old_size = 6 + parent.key_at(i).size();
+    size_t new_size = 6 + new_key.size();
+    if (new_size <= old_size) {
+        return true;
+    }
+    return new_size <= parent.free_space() + parent.dead_bytes() + old_size;
+}
+
+static bool replace_key(Node& parent, int i, std::string_view new_key) {
+    page_id_t child = parent.child_at(i);
+    std::string keep = std::string(parent.key_at(i));
+    parent.remove_cell(i);
+    if (parent.insert_internal_cell(i, new_key, child)) {
+        return true;
+    }
+    parent.insert_internal_cell(i, keep, child);
+    return false;
+}
+
 Status BTree::remove(std::string_view key) {
     if (key.size() < 1 || key.size() > MAX_KEY_SIZE) {
         return Status::InvalidArgument("key length must be 1 to 64 bytes");
     }
-
-    PageGuard leaf;
-    Status s = find_leaf(key, &leaf);
-    if (!s.ok()) {
-        if (s.code() == Code::NotFound) {
-            return Status::NotFound("key does not exist");
-        }
-        return s;
-    }
-
-    Node node(leaf.write());
-    bool exact = false;
-    int idx = node.lower_bound(key, &exact);
-    if (!exact) {
+    page_id_t root = disk_->meta().root_page;
+    if (root == NO_PAGE) {
         return Status::NotFound("key does not exist");
     }
-    node.remove_cell(idx);
+
+    bool underflow = false;
+    Status s = remove_at(root, key, &underflow);
+    if (!s.ok()) {
+        return s;
+    }
+    return shrink_root();
+}
+
+Status BTree::remove_at(page_id_t pid, std::string_view key, bool* underflow) {
+    *underflow = false;
+
+    Result<PageGuard> r = pool_->fetch(pid);
+    if (!r.ok()) {
+        return r.status();
+    }
+    PageGuard guard = r.take();
+    Node node((uint8_t*)guard.read());
+
+    bool exact = false;
+    int idx = node.lower_bound(key, &exact);
+
+    if (node.is_leaf()) {
+        if (!exact) {
+            return Status::NotFound("key does not exist");
+        }
+        Node w(guard.write());
+        w.remove_cell(idx);
+        *underflow = w.used_space() < MIN_FILL;
+        return Status::Ok();
+    }
+
+    if (exact) {
+        idx++;
+    }
+    page_id_t child = child_ptr(node, idx);
+    if (child == NO_PAGE) {
+        return Status::Corruption("internal node points at page 0");
+    }
+    guard.drop();
+
+    bool child_underflow = false;
+    Status s = remove_at(child, key, &child_underflow);
+    if (!s.ok()) {
+        return s;
+    }
+    if (!child_underflow) {
+        return Status::Ok();
+    }
+
+    Result<PageGuard> r2 = pool_->fetch(pid);
+    if (!r2.ok()) {
+        return r2.status();
+    }
+    PageGuard parent_guard = r2.take();
+    Node parent(parent_guard.write());
+
+    bool exact2 = false;
+    idx = parent.lower_bound(key, &exact2);
+    if (exact2) {
+        idx++;
+    }
+
+    s = fix_child(parent, idx);
+    if (!s.ok()) {
+        return s;
+    }
+    *underflow = parent.used_space() < MIN_FILL;
     return Status::Ok();
+}
+
+// Takes one entry from a sibling, or merges with it when no sibling can give
+// anything away.
+Status BTree::fix_child(Node& parent, int idx) {
+    if (idx > 0) {
+        bool done = false;
+        Status s = borrow_left(parent, idx, &done);
+        if (!s.ok()) {
+            return s;
+        }
+        if (done) {
+            return Status::Ok();
+        }
+    }
+    if (idx < parent.count()) {
+        bool done = false;
+        Status s = borrow_right(parent, idx, &done);
+        if (!s.ok()) {
+            return s;
+        }
+        if (done) {
+            return Status::Ok();
+        }
+    }
+    if (idx > 0) {
+        return merge_children(parent, idx - 1);
+    }
+    if (parent.count() > 0) {
+        return merge_children(parent, idx);
+    }
+    return Status::Ok();
+}
+
+Status BTree::borrow_left(Node& parent, int idx, bool* done) {
+    *done = false;
+    page_id_t left_id = child_ptr(parent, idx - 1);
+    page_id_t child_id = child_ptr(parent, idx);
+
+    Result<PageGuard> rl = pool_->fetch(left_id);
+    if (!rl.ok()) {
+        return rl.status();
+    }
+    PageGuard lg = rl.take();
+    Result<PageGuard> rc = pool_->fetch(child_id);
+    if (!rc.ok()) {
+        return rc.status();
+    }
+    PageGuard cg = rc.take();
+
+    Node left(lg.write());
+    Node child(cg.write());
+    int last = left.count() - 1;
+    if (last < 0) {
+        return Status::Ok();
+    }
+
+    if (left.is_leaf()) {
+        std::string k = std::string(left.key_at(last));
+        std::string v = std::string(left.value_at(last));
+        if (left.used_space() - (6 + k.size() + v.size()) < MIN_FILL) {
+            return Status::Ok();
+        }
+        if (!can_replace_key(parent, idx - 1, k)) {
+            return Status::Ok();
+        }
+        if (!child.insert_leaf_cell(0, k, v)) {
+            return Status::Ok();
+        }
+        left.remove_cell(last);
+        if (!replace_key(parent, idx - 1, k)) {
+            return Status::Internal("could not update the separator key");
+        }
+    } else {
+        std::string k = std::string(left.key_at(last));
+        page_id_t moved = left.extra();
+        std::string sep = std::string(parent.key_at(idx - 1));
+        if (left.used_space() - (6 + k.size()) < MIN_FILL) {
+            return Status::Ok();
+        }
+        if (!can_replace_key(parent, idx - 1, k)) {
+            return Status::Ok();
+        }
+        if (!child.insert_internal_cell(0, sep, moved)) {
+            return Status::Ok();
+        }
+        left.set_extra(left.child_at(last));
+        left.remove_cell(last);
+        if (!replace_key(parent, idx - 1, k)) {
+            return Status::Internal("could not update the separator key");
+        }
+    }
+
+    *done = true;
+    return Status::Ok();
+}
+
+Status BTree::borrow_right(Node& parent, int idx, bool* done) {
+    *done = false;
+    page_id_t child_id = child_ptr(parent, idx);
+    page_id_t right_id = child_ptr(parent, idx + 1);
+
+    Result<PageGuard> rc = pool_->fetch(child_id);
+    if (!rc.ok()) {
+        return rc.status();
+    }
+    PageGuard cg = rc.take();
+    Result<PageGuard> rr = pool_->fetch(right_id);
+    if (!rr.ok()) {
+        return rr.status();
+    }
+    PageGuard rg = rr.take();
+
+    Node child(cg.write());
+    Node right(rg.write());
+    if (right.count() < 1) {
+        return Status::Ok();
+    }
+
+    if (right.is_leaf()) {
+        std::string k = std::string(right.key_at(0));
+        std::string v = std::string(right.value_at(0));
+        if (right.used_space() - (6 + k.size() + v.size()) < MIN_FILL) {
+            return Status::Ok();
+        }
+        if (right.count() < 2) {
+            return Status::Ok();
+        }
+        std::string next_key = std::string(right.key_at(1));
+        if (!can_replace_key(parent, idx, next_key)) {
+            return Status::Ok();
+        }
+        if (!child.insert_leaf_cell(child.count(), k, v)) {
+            return Status::Ok();
+        }
+        right.remove_cell(0);
+        if (!replace_key(parent, idx, next_key)) {
+            return Status::Internal("could not update the separator key");
+        }
+    } else {
+        std::string k = std::string(right.key_at(0));
+        page_id_t moved = right.child_at(0);
+        std::string sep = std::string(parent.key_at(idx));
+        if (right.used_space() - (6 + k.size()) < MIN_FILL) {
+            return Status::Ok();
+        }
+        if (!can_replace_key(parent, idx, k)) {
+            return Status::Ok();
+        }
+        if (!child.insert_internal_cell(child.count(), sep, child.extra())) {
+            return Status::Ok();
+        }
+        child.set_extra(moved);
+        right.remove_cell(0);
+        if (!replace_key(parent, idx, k)) {
+            return Status::Internal("could not update the separator key");
+        }
+    }
+
+    *done = true;
+    return Status::Ok();
+}
+
+// Moves everything from the right node into the left one and drops the
+// separator key from the parent.
+Status BTree::merge_children(Node& parent, int j) {
+    page_id_t left_id = child_ptr(parent, j);
+    page_id_t right_id = child_ptr(parent, j + 1);
+    std::string sep = std::string(parent.key_at(j));
+
+    Result<PageGuard> rl = pool_->fetch(left_id);
+    if (!rl.ok()) {
+        return rl.status();
+    }
+    PageGuard lg = rl.take();
+    Result<PageGuard> rr = pool_->fetch(right_id);
+    if (!rr.ok()) {
+        return rr.status();
+    }
+    PageGuard rg = rr.take();
+
+    Node left(lg.write());
+    Node right((uint8_t*)rg.read());
+
+    size_t extra_bytes = left.is_leaf() ? 0 : 6 + sep.size();
+    if (left.used_space() + right.used_space() + extra_bytes > NODE_CAPACITY) {
+        // Does not fit, leave the node half empty instead.
+        return Status::Ok();
+    }
+
+    if (left.is_leaf()) {
+        int n = right.count();
+        for (int i = 0; i < n; i++) {
+            std::string k = std::string(right.key_at(i));
+            std::string v = std::string(right.value_at(i));
+            if (!left.insert_leaf_cell(left.count(), k, v)) {
+                return Status::Internal("merge did not fit after all");
+            }
+        }
+        left.set_extra(right.extra());
+    } else {
+        if (!left.insert_internal_cell(left.count(), sep, left.extra())) {
+            return Status::Internal("merge did not fit after all");
+        }
+        int n = right.count();
+        for (int i = 0; i < n; i++) {
+            std::string k = std::string(right.key_at(i));
+            page_id_t c = right.child_at(i);
+            if (!left.insert_internal_cell(left.count(), k, c)) {
+                return Status::Internal("merge did not fit after all");
+            }
+        }
+        left.set_extra(right.extra());
+    }
+
+    parent.remove_cell(j);
+    set_child_ptr(parent, j, left_id);
+
+    lg.drop();
+    rg.drop();
+    return pool_->free_page(right_id);
+}
+
+// The root is allowed to be almost empty, but when it has no keys left it is
+// replaced by its only child.
+Status BTree::shrink_root() {
+    MetaPage& meta = disk_->meta();
+    page_id_t root = meta.root_page;
+    if (root == NO_PAGE) {
+        return Status::Ok();
+    }
+
+    Result<PageGuard> r = pool_->fetch(root);
+    if (!r.ok()) {
+        return r.status();
+    }
+    PageGuard guard = r.take();
+    Node node((uint8_t*)guard.read());
+    if (node.count() > 0) {
+        return Status::Ok();
+    }
+
+    page_id_t new_root = NO_PAGE;
+    if (!node.is_leaf()) {
+        new_root = node.extra();
+    }
+    guard.drop();
+
+    meta.root_page = new_root;
+    return pool_->free_page(root);
 }
 
 Status BTree::insert_at(page_id_t pid, std::string_view key, std::string_view value,

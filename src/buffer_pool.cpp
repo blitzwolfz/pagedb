@@ -189,12 +189,21 @@ Result<PageGuard> BufferPool::new_page() {
 
     if (meta.free_list_head != NO_PAGE) {
         id = meta.free_list_head;
-        uint8_t buf[PAGE_SIZE];
-        Status s = disk_->read_page(id, buf);
-        if (!s.ok()) {
-            return Result<PageGuard>(s);
+        page_id_t next = NO_PAGE;
+        std::unordered_map<page_id_t, size_t>::iterator cached = table_.find(id);
+        if (cached != table_.end()) {
+            // The freed page may still be dirty in a frame, the copy on disk
+            // is then older than the one we have here.
+            next = get_u32(frame_data(cached->second) + FREE_NEXT_OFFSET);
+        } else {
+            uint8_t buf[PAGE_SIZE];
+            Status s = disk_->read_page(id, buf);
+            if (!s.ok()) {
+                return Result<PageGuard>(s);
+            }
+            next = get_u32(buf + FREE_NEXT_OFFSET);
         }
-        meta.free_list_head = get_u32(buf + FREE_NEXT_OFFSET);
+        meta.free_list_head = next;
         if (meta.free_page_count > 0) {
             meta.free_page_count--;
         }

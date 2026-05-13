@@ -17,6 +17,7 @@ add_library(pagedb
   src/disk_manager.cpp
   src/buffer_pool.cpp
   src/btree.cpp
+  src/database.cpp
 )
 
 enable_testing()
@@ -31,3 +32,4 @@ endfunction()
 pagedb_test(disk_test)
 pagedb_test(buffer_pool_test)
 pagedb_test(btree_test)
+pagedb_test(database_test)

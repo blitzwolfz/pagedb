@@ -107,6 +107,9 @@ Status Database::close() {
         return Status::Ok();
     }
     closed_ = true;
+    if (pool_ == 0 || disk_ == 0) {
+        return Status::Ok();
+    }
 
     Status s = pool_->flush_all();
     Status s2 = disk_->close();

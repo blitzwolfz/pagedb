@@ -10,6 +10,19 @@ endif()
 
 add_compile_options(-Wall -Wextra -Wpedantic)
 
+option(PAGEDB_ASAN "build with address and undefined behaviour sanitizer" OFF)
+option(PAGEDB_TSAN "build with thread sanitizer" OFF)
+
+if(PAGEDB_ASAN)
+  add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
+  add_link_options(-fsanitize=address,undefined)
+endif()
+
+if(PAGEDB_TSAN)
+  add_compile_options(-fsanitize=thread -g)
+  add_link_options(-fsanitize=thread)
+endif()
+
 include_directories(include)
 
 add_library(pagedb

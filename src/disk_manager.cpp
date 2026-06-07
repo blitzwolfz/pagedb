@@ -180,6 +180,24 @@ Status DiskManager::write_page(page_id_t id, const uint8_t* in) {
     return write_at((off_t)id * (off_t)PAGE_SIZE, in, PAGE_SIZE);
 }
 
+Status DiskManager::write_raw_page(page_id_t id, const uint8_t* in) {
+    if (fd_ < 0) {
+        return Status::Internal("write on closed file");
+    }
+    Status s = write_at((off_t)id * (off_t)PAGE_SIZE, in, PAGE_SIZE);
+    if (!s.ok()) {
+        return s;
+    }
+    if (id >= meta_.page_count) {
+        meta_.page_count = id + 1;
+    }
+    return Status::Ok();
+}
+
+Status DiskManager::reload_meta() {
+    return load_meta();
+}
+
 Result<page_id_t> DiskManager::allocate_page() {
     if (fd_ < 0) {
         return Result<page_id_t>(Status::Internal("allocate on closed file"));

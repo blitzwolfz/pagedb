@@ -31,6 +31,7 @@ add_library(pagedb
   src/buffer_pool.cpp
   src/btree.cpp
   src/database.cpp
+  src/wal.cpp
 )
 
 enable_testing()

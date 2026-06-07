@@ -50,6 +50,11 @@ public:
 
     Status sync();
 
+    // Used by log replay: writes a page even when the meta page does not know
+    // about it yet, and grows the file if it has to.
+    Status write_raw_page(page_id_t id, const uint8_t* in);
+    Status reload_meta();
+
     Status write_meta();
     MetaPage& meta() { return meta_; }
     uint32_t page_count() const { return meta_.page_count; }

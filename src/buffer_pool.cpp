@@ -74,6 +74,7 @@ BufferPool::BufferPool(DiskManager* disk, size_t capacity) {
     for (size_t i = 0; i < capacity_; i++) {
         free_frames_.push_back(capacity_ - 1 - i);
     }
+    in_operation_ = false;
     hits_ = 0;
     misses_ = 0;
     evictions_ = 0;
@@ -126,7 +127,21 @@ Status BufferPool::pick_victim(size_t* frame_out) {
         return Status::PoolExhausted("every frame in the buffer pool is pinned");
     }
 
-    size_t victim = lru_.front();
+    // Skip pages that the running operation changed, they may not be written
+    // to the database file before the operation commits.
+    size_t victim = 0;
+    bool found = false;
+    for (std::list<size_t>::iterator it = lru_.begin(); it != lru_.end(); ++it) {
+        if (!frames_[*it].in_operation) {
+            victim = *it;
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        return Status::PoolExhausted(
+            "no frame can be freed, all of them belong to the running operation");
+    }
     lru_remove(victim);
 
     Frame& f = frames_[victim];
@@ -141,6 +156,7 @@ Status BufferPool::pick_victim(size_t* frame_out) {
     f.page_id = NO_PAGE;
     f.pin_count = 0;
     f.dirty = false;
+    f.in_operation = false;
     f.page_lsn = 0;
     evictions_++;
     *frame_out = victim;
@@ -235,6 +251,10 @@ Result<PageGuard> BufferPool::new_page() {
     f.pin_count = 1;
     f.dirty = true;
     f.page_lsn = 0;
+    if (in_operation_) {
+        f.in_operation = true;
+        operation_pages_.push_back(id);
+    }
     return Result<PageGuard>(PageGuard(this, frame, id));
 }
 
@@ -279,6 +299,44 @@ void BufferPool::unpin(size_t frame, bool dirty) {
 void BufferPool::set_dirty(size_t frame) {
     std::lock_guard<std::mutex> lock(mu_);
     frames_[frame].dirty = true;
+    if (in_operation_ && !frames_[frame].in_operation) {
+        frames_[frame].in_operation = true;
+        operation_pages_.push_back(frames_[frame].page_id);
+    }
+}
+
+void BufferPool::begin_operation() {
+    std::lock_guard<std::mutex> lock(mu_);
+    in_operation_ = true;
+    operation_pages_.clear();
+}
+
+void BufferPool::operation_pages(std::vector<page_id_t>* out) {
+    std::lock_guard<std::mutex> lock(mu_);
+    *out = operation_pages_;
+}
+
+Status BufferPool::copy_page(page_id_t id, uint8_t* out) {
+    std::lock_guard<std::mutex> lock(mu_);
+    std::unordered_map<page_id_t, size_t>::iterator it = table_.find(id);
+    if (it == table_.end()) {
+        return Status::Internal("page is not in the pool any more");
+    }
+    memcpy(out, frame_data(it->second), PAGE_SIZE);
+    return Status::Ok();
+}
+
+void BufferPool::end_operation() {
+    std::lock_guard<std::mutex> lock(mu_);
+    in_operation_ = false;
+    for (size_t i = 0; i < operation_pages_.size(); i++) {
+        std::unordered_map<page_id_t, size_t>::iterator it =
+            table_.find(operation_pages_[i]);
+        if (it != table_.end()) {
+            frames_[it->second].in_operation = false;
+        }
+    }
+    operation_pages_.clear();
 }
 
 Status BufferPool::flush_page(page_id_t id) {

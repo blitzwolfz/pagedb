@@ -47,12 +47,14 @@ struct Frame {
     page_id_t page_id;
     uint32_t pin_count;
     bool dirty;
+    bool in_operation;
     uint64_t page_lsn;
 
     Frame() {
         page_id = NO_PAGE;
         pin_count = 0;
         dirty = false;
+        in_operation = false;
         page_lsn = 0;
     }
 };
@@ -71,6 +73,14 @@ public:
 
     Status flush_page(page_id_t id);
     Status flush_all();
+
+    // While an operation is running the pages it changed must not go to the
+    // database file, because the log does not have them yet. These three
+    // calls mark that window.
+    void begin_operation();
+    void operation_pages(std::vector<page_id_t>* out);
+    Status copy_page(page_id_t id, uint8_t* out);
+    void end_operation();
 
     size_t capacity() const { return capacity_; }
     uint64_t hits() const { return hits_; }
@@ -98,6 +108,9 @@ private:
     std::list<size_t> lru_;
     std::unordered_map<size_t, std::list<size_t>::iterator> lru_pos_;
     std::vector<size_t> free_frames_;
+
+    bool in_operation_;
+    std::vector<page_id_t> operation_pages_;
 
     uint64_t hits_;
     uint64_t misses_;

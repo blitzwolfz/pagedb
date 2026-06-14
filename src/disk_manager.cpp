@@ -146,8 +146,7 @@ Status DiskManager::load_meta() {
     return Status::Ok();
 }
 
-Status DiskManager::write_meta() {
-    uint8_t buf[PAGE_SIZE];
+void DiskManager::encode_meta(uint8_t* buf) {
     memset(buf, 0, PAGE_SIZE);
     memcpy(buf, MAGIC, 8);
     put_u32(buf + 8, meta_.format_version);
@@ -157,6 +156,11 @@ Status DiskManager::write_meta() {
     put_u32(buf + 24, meta_.free_list_head);
     put_u32(buf + 28, meta_.free_page_count);
     put_u32(buf + PAGE_SIZE - 4, crc32(buf, PAGE_SIZE - 4));
+}
+
+Status DiskManager::write_meta() {
+    uint8_t buf[PAGE_SIZE];
+    encode_meta(buf);
     return write_at(0, buf, PAGE_SIZE);
 }
 

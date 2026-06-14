@@ -55,6 +55,7 @@ public:
     Status write_raw_page(page_id_t id, const uint8_t* in);
     Status reload_meta();
 
+    void encode_meta(uint8_t* page);
     Status write_meta();
     MetaPage& meta() { return meta_; }
     uint32_t page_count() const { return meta_.page_count; }

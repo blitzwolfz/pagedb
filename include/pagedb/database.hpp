@@ -13,6 +13,7 @@
 #include "pagedb/buffer_pool.hpp"
 #include "pagedb/disk_manager.hpp"
 #include "pagedb/status.hpp"
+#include "pagedb/wal.hpp"
 
 namespace pagedb {
 
@@ -38,17 +39,30 @@ public:
     Status remove(std::string_view key);
     Result<std::vector<KVPair>> scan(std::string_view start_inclusive,
                                      std::string_view end_exclusive);
+    // Writes every dirty page into the database file, syncs it and empties
+    // the log.
+    Status checkpoint();
     Status close();
 
     const BufferPool& pool() const { return *pool_; }
+    const WalManager& wal() const { return *wal_; }
 
 private:
-    Database() : disk_(0), pool_(0), tree_(0), closed_(false) {}
+    Database()
+        : disk_(0), pool_(0), tree_(0), wal_(0), durable_(true), closed_(false),
+          damaged_(false) {}
+
+    Status log_operation(const MetaPage& before);
 
     DiskManager* disk_;
     BufferPool* pool_;
     BTree* tree_;
+    WalManager* wal_;
+    bool durable_;
     bool closed_;
+    // Set when a write failed half way. The pages in memory can not be
+    // trusted after that, so the database has to be opened again.
+    bool damaged_;
     std::shared_mutex mu_;
 };
 

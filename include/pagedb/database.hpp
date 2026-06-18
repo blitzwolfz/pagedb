@@ -42,6 +42,8 @@ public:
     // Writes every dirty page into the database file, syncs it and empties
     // the log.
     Status checkpoint();
+    // Walks the tree and checks its rules. Used by the tests.
+    Status verify();
     Status close();
 
     const BufferPool& pool() const { return *pool_; }

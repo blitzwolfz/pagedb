@@ -214,6 +214,14 @@ Status Database::checkpoint() {
     return wal_->truncate();
 }
 
+Status Database::verify() {
+    std::shared_lock<std::shared_mutex> lock(mu_);
+    if (closed_ || tree_ == 0) {
+        return Status::Internal("database is closed");
+    }
+    return tree_->check();
+}
+
 Status Database::close() {
     std::unique_lock<std::shared_mutex> lock(mu_);
     if (closed_) {

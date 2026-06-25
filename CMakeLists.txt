@@ -36,9 +36,11 @@ add_library(pagedb
 
 enable_testing()
 
+find_package(Threads REQUIRED)
+
 function(pagedb_test name)
   add_executable(${name} tests/${name}.cpp)
-  target_link_libraries(${name} pagedb)
+  target_link_libraries(${name} pagedb Threads::Threads)
   target_include_directories(${name} PRIVATE tests)
   add_test(NAME ${name} COMMAND ${name})
 endfunction()
@@ -48,3 +50,4 @@ pagedb_test(buffer_pool_test)
 pagedb_test(btree_test)
 pagedb_test(database_test)
 pagedb_test(recovery_test)
+pagedb_test(concurrency_test)

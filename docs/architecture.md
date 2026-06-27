@@ -37,3 +37,16 @@ written back to the file first when it is dirty. The caller gets a
 Opens the file, takes an exclusive lock so only one process writes, and does
 positional reads and writes that handle short reads and interrupts. It also
 keeps the meta page, which holds the root page id and the free page list.
+
+## Locks
+
+There are three locks and they are always taken in this order:
+
+1. the database lock, shared for `get` and `scan`, exclusive for `put`,
+   `remove` and `checkpoint`
+2. the log lock inside the write ahead log
+3. the buffer pool lock
+
+A thread never takes a lock that comes earlier in this list while it holds a
+later one, so there is no deadlock. Writes are serialised by the database
+lock, which means more writer threads do not make writes faster.

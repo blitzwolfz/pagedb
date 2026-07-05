@@ -25,6 +25,8 @@ endif()
 
 include_directories(include)
 
+find_package(Threads REQUIRED)
+
 add_library(pagedb
   src/crc32.cpp
   src/disk_manager.cpp
@@ -34,9 +36,10 @@ add_library(pagedb
   src/wal.cpp
 )
 
-enable_testing()
+add_executable(bench benchmarks/bench.cpp)
+target_link_libraries(bench pagedb Threads::Threads)
 
-find_package(Threads REQUIRED)
+enable_testing()
 
 function(pagedb_test name)
   add_executable(${name} tests/${name}.cpp)

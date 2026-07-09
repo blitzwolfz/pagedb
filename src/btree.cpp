@@ -722,18 +722,21 @@ Status BTree::insert_at(page_id_t pid, std::string_view key, std::string_view va
         return r.status();
     }
     PageGuard guard = r.take();
-    Node node(guard.write());
+    // Only ask for a writable page when this node really changes, a page that
+    // is only read on the way down does not have to go into the log.
+    Node node((uint8_t*)guard.read());
 
     bool exact = false;
     int idx = node.lower_bound(key, &exact);
 
     if (node.is_leaf()) {
+        Node leaf(guard.write());
         if (exact) {
-            node.remove_cell(idx);
+            leaf.remove_cell(idx);
         }
-        if (!node.insert_leaf_cell(idx, key, value)) {
+        if (!leaf.insert_leaf_cell(idx, key, value)) {
             *split = true;
-            return split_leaf(node, idx, key, value, sep_key, right_page);
+            return split_leaf(leaf, idx, key, value, sep_key, right_page);
         }
         return Status::Ok();
     }

@@ -1,3 +1,4 @@
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -51,13 +52,14 @@ static std::string make_key(int i, int size) {
 // Prints one result line. Latencies are microseconds.
 static void report(const char* name, long ops, double seconds,
                    std::vector<double>& lat) {
-    std::sort(lat.begin(), lat.end());
-    double p50 = 0;
-    double p99 = 0;
-    if (!lat.empty()) {
-        p50 = lat[lat.size() / 2];
-        p99 = lat[(size_t)((double)lat.size() * 0.99)];
+    if (lat.empty()) {
+        printf("%-22s %9ld ops %8.2f s %12.0f ops/s\n", name, ops, seconds,
+               (double)ops / seconds);
+        return;
     }
+    std::sort(lat.begin(), lat.end());
+    double p50 = lat[lat.size() / 2];
+    double p99 = lat[(size_t)((double)lat.size() * 0.99)];
     printf("%-22s %9ld ops %8.2f s %12.0f ops/s  p50 %7.2f us  p99 %8.2f us\n",
            name, ops, seconds, (double)ops / seconds, p50, p99);
 }
@@ -286,23 +288,29 @@ static void bench_cache_sweep(const std::string& path, const Options& o) {
 // takes, which is the log replay.
 static void bench_recovery(const std::string& path, const Options& o) {
     fresh(path);
-    {
+    int n = o.ops / 10;
+
+    // The writer has to die without closing the file, otherwise the lock is
+    // still held and the log is already empty.
+    pid_t pid = fork();
+    if (pid == 0) {
         std::unique_ptr<Database> db = open_db(path, o);
         std::string value((size_t)o.value_size, 'v');
-        int n = o.ops / 10;
         for (int i = 0; i < n; i++) {
             if (!db->put(make_key(i, o.key_size), value).ok()) {
-                exit(1);
+                _exit(1);
             }
         }
-        // no close and no checkpoint, so the log keeps everything
         db.release();
+        _exit(0);
     }
+    int status = 0;
+    waitpid(pid, &status, 0);
 
     Clock::time_point start = Clock::now();
     std::unique_ptr<Database> db = open_db(path, o);
     double seconds = std::chrono::duration<double>(Clock::now() - start).count();
-    printf("%-22s %9d ops %8.2f s replay\n", "recovery", o.ops / 10, seconds);
+    printf("%-22s %9d ops %8.2f s replay\n", "recovery", n, seconds);
     db->close();
 }
 

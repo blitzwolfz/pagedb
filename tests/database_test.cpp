@@ -93,6 +93,37 @@ static void test_second_opener_is_rejected(const std::string& path) {
     CHECK_OK(db->close());
 }
 
+// With a small checkpoint limit the log has to be emptied while the writes
+// are still running, and the data must still be there afterwards.
+static void test_auto_checkpoint(const std::string& path) {
+    DatabaseOptions options;
+    options.path = path;
+    options.buffer_pool_pages = 64;
+    options.durable = false;
+    options.checkpoint_bytes = 256 * 1024;
+    Result<std::unique_ptr<Database>> r = Database::open(options);
+    CHECK(r.ok());
+    std::unique_ptr<Database> db = r.take();
+
+    for (int i = 0; i < 3000; i++) {
+        CHECK_OK(db->put("key" + std::to_string(i), "value" + std::to_string(i)));
+    }
+    CHECK(db->wal().commits() == 3000);
+
+    struct stat st;
+    CHECK(stat((path + ".wal").c_str(), &st) == 0);
+    CHECK(st.st_size < 4 * 1024 * 1024);
+
+    for (int i = 0; i < 3000; i++) {
+        Result<std::optional<std::string>> g = db->get("key" + std::to_string(i));
+        CHECK(g.ok());
+        CHECK(g.value().has_value());
+        CHECK(g.value().value() == "value" + std::to_string(i));
+    }
+    CHECK_OK(db->verify());
+    CHECK_OK(db->close());
+}
+
 int main() {
     std::string path = temp_path("database");
     test_api(path);
@@ -100,6 +131,8 @@ int main() {
     test_reopen(path);
     remove_db(path);
     test_second_opener_is_rejected(path);
+    remove_db(path);
+    test_auto_checkpoint(path);
     remove_db(path);
     printf("database_test ok\n");
     return 0;

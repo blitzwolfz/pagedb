@@ -37,6 +37,8 @@ Result<std::unique_ptr<Database>> Database::open(const DatabaseOptions& options)
         return Result<std::unique_ptr<Database>>(s);
     }
     db->durable_ = options.durable;
+    db->checkpoint_bytes_ = options.checkpoint_bytes;
+    db->logged_since_checkpoint_ = 0;
     db->wal_ = new WalManager();
     std::string wal_path = options.path.string() + ".wal";
     s = db->wal_->open(wal_path, options.durable);
@@ -118,6 +120,16 @@ Status Database::log_operation(const MetaPage& before) {
     pool_->end_operation();
     if (!s.ok()) {
         damaged_ = true;
+        return s;
+    }
+
+    // The log would grow forever otherwise.
+    if (checkpoint_bytes_ > 0 &&
+        wal_->bytes_written() - logged_since_checkpoint_ > checkpoint_bytes_) {
+        s = checkpoint_locked();
+        if (!s.ok()) {
+            damaged_ = true;
+        }
     }
     return s;
 }
@@ -197,7 +209,11 @@ Status Database::checkpoint() {
     if (damaged_) {
         return Status::Internal("a write failed before, open the database again");
     }
+    return checkpoint_locked();
+}
 
+// The caller already holds the database lock.
+Status Database::checkpoint_locked() {
     Status s = pool_->flush_all();
     if (!s.ok()) {
         return s;
@@ -211,7 +227,11 @@ Status Database::checkpoint() {
         return s;
     }
     // Only now, when the file has everything, the log can go away.
-    return wal_->truncate();
+    s = wal_->truncate();
+    if (s.ok()) {
+        logged_since_checkpoint_ = wal_->bytes_written();
+    }
+    return s;
 }
 
 Status Database::verify() {

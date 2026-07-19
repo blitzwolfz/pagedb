@@ -21,6 +21,9 @@ struct DatabaseOptions {
     std::filesystem::path path;
     std::size_t buffer_pool_pages = 1024;
     bool durable = true;
+    // The log is written back into the database file once it has grown past
+    // this many bytes. 0 turns that off.
+    std::size_t checkpoint_bytes = 64ull * 1024 * 1024;
 };
 
 // One open database file. Reads can run at the same time, writes are done one
@@ -51,16 +54,20 @@ public:
 
 private:
     Database()
-        : disk_(0), pool_(0), tree_(0), wal_(0), durable_(true), closed_(false),
+        : disk_(0), pool_(0), tree_(0), wal_(0), durable_(true),
+          checkpoint_bytes_(0), logged_since_checkpoint_(0), closed_(false),
           damaged_(false) {}
 
     Status log_operation(const MetaPage& before);
+    Status checkpoint_locked();
 
     DiskManager* disk_;
     BufferPool* pool_;
     BTree* tree_;
     WalManager* wal_;
     bool durable_;
+    size_t checkpoint_bytes_;
+    uint64_t logged_since_checkpoint_;
     bool closed_;
     // Set when a write failed half way. The pages in memory can not be
     // trusted after that, so the database has to be opened again.

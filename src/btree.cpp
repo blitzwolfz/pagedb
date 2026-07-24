@@ -853,8 +853,8 @@ Status BTree::check_node(page_id_t pid, int level, const std::string* lo,
 
     for (int i = 0; i < n; i++) {
         const std::string* child_lo = (i == 0) ? lo : &keys[(size_t)i - 1];
-        Status s = check_node(children[(size_t)i], level + 1, child_lo, &keys[(size_t)i],
-                              leaf_level);
+        Status s = check_node(children[(size_t)i], level + 1, child_lo,
+                              &keys[(size_t)i], leaf_level);
         if (!s.ok()) {
             return s;
         }
@@ -1016,8 +1016,10 @@ Status BTree::split_internal(Node& node, int idx, std::string_view key,
     right.init(PAGE_TYPE_INTERNAL);
     right.set_extra(last_child);
     for (size_t i = mid + 1; i < all.size(); i++) {
-        if (!right.insert_internal_cell((int)(i - mid - 1), all[i].key, all[i].child)) {
-            return Status::Internal("right half does not fit after an internal split");
+        if (!right.insert_internal_cell((int)(i - mid - 1), all[i].key,
+                                        all[i].child)) {
+            return Status::Internal(
+                "right half does not fit after an internal split");
         }
     }
 
@@ -1025,7 +1027,8 @@ Status BTree::split_internal(Node& node, int idx, std::string_view key,
     node.set_extra(left_last);
     for (size_t i = 0; i < mid; i++) {
         if (!node.insert_internal_cell((int)i, all[i].key, all[i].child)) {
-            return Status::Internal("left half does not fit after an internal split");
+            return Status::Internal(
+                "left half does not fit after an internal split");
         }
     }
 

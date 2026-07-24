@@ -273,7 +273,8 @@ static void test_against_map(const std::string& path, unsigned seed) {
             CHECK_OK(tree.scan(sbuf, ebuf, &out));
 
             std::vector<KVPair> want;
-            std::map<std::string, std::string>::iterator it = model.lower_bound(sbuf);
+            std::map<std::string, std::string>::iterator it =
+                model.lower_bound(sbuf);
             while (it != model.end() && it->first < std::string(ebuf)) {
                 KVPair kv;
                 kv.key = it->first;

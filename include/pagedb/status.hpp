@@ -27,13 +27,27 @@ public:
     const std::string& message() const { return msg_; }
 
     static Status Ok() { return Status(); }
-    static Status NotFound(std::string m) { return Status(Code::NotFound, std::move(m)); }
-    static Status InvalidArgument(std::string m) { return Status(Code::InvalidArgument, std::move(m)); }
-    static Status IoError(std::string m) { return Status(Code::IoError, std::move(m)); }
-    static Status Corruption(std::string m) { return Status(Code::Corruption, std::move(m)); }
-    static Status PoolExhausted(std::string m) { return Status(Code::PoolExhausted, std::move(m)); }
-    static Status Locked(std::string m) { return Status(Code::Locked, std::move(m)); }
-    static Status Internal(std::string m) { return Status(Code::Internal, std::move(m)); }
+    static Status NotFound(std::string m) {
+        return Status(Code::NotFound, std::move(m));
+    }
+    static Status InvalidArgument(std::string m) {
+        return Status(Code::InvalidArgument, std::move(m));
+    }
+    static Status IoError(std::string m) {
+        return Status(Code::IoError, std::move(m));
+    }
+    static Status Corruption(std::string m) {
+        return Status(Code::Corruption, std::move(m));
+    }
+    static Status PoolExhausted(std::string m) {
+        return Status(Code::PoolExhausted, std::move(m));
+    }
+    static Status Locked(std::string m) {
+        return Status(Code::Locked, std::move(m));
+    }
+    static Status Internal(std::string m) {
+        return Status(Code::Internal, std::move(m));
+    }
 
     std::string to_string() const {
         std::string out = code_name();
@@ -47,14 +61,22 @@ public:
 private:
     const char* code_name() const {
         switch (code_) {
-        case Code::Ok: return "Ok";
-        case Code::NotFound: return "NotFound";
-        case Code::InvalidArgument: return "InvalidArgument";
-        case Code::IoError: return "IoError";
-        case Code::Corruption: return "Corruption";
-        case Code::PoolExhausted: return "PoolExhausted";
-        case Code::Locked: return "Locked";
-        case Code::Internal: return "Internal";
+            case Code::Ok:
+                return "Ok";
+            case Code::NotFound:
+                return "NotFound";
+            case Code::InvalidArgument:
+                return "InvalidArgument";
+            case Code::IoError:
+                return "IoError";
+            case Code::Corruption:
+                return "Corruption";
+            case Code::PoolExhausted:
+                return "PoolExhausted";
+            case Code::Locked:
+                return "Locked";
+            case Code::Internal:
+                return "Internal";
         }
         return "Unknown";
     }

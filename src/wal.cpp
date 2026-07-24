@@ -201,7 +201,8 @@ Status WalManager::recover(DiskManager* disk, uint32_t* groups_applied) {
                 break;
             }
             group_pages.push_back(page);
-            std::vector<uint8_t> copy(record.begin() + WAL_HEADER_SIZE, record.end());
+            std::vector<uint8_t> copy(record.begin() + WAL_HEADER_SIZE,
+                                      record.end());
             group_data.push_back(copy);
         } else if (type == WAL_COMMIT) {
             for (size_t i = 0; i < group_pages.size(); i++) {

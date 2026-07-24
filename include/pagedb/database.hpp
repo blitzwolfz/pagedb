@@ -54,8 +54,14 @@ public:
 
 private:
     Database()
-        : disk_(0), pool_(0), tree_(0), wal_(0), durable_(true),
-          checkpoint_bytes_(0), logged_since_checkpoint_(0), closed_(false),
+        : disk_(0),
+          pool_(0),
+          tree_(0),
+          wal_(0),
+          durable_(true),
+          checkpoint_bytes_(0),
+          logged_since_checkpoint_(0),
+          closed_(false),
           damaged_(false) {}
 
     Status log_operation(const MetaPage& before);

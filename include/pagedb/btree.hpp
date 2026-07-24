@@ -52,7 +52,9 @@ public:
     void set_lsn(uint64_t v) { put_u64(p_ + 12, v); }
 
     uint16_t slot(int i) const { return get_u16(p_ + NODE_HEADER_SIZE + 2 * i); }
-    void set_slot(int i, uint16_t off) { put_u16(p_ + NODE_HEADER_SIZE + 2 * i, off); }
+    void set_slot(int i, uint16_t off) {
+        put_u16(p_ + NODE_HEADER_SIZE + 2 * i, off);
+    }
 
     std::string_view key_at(int i) const;
     std::string_view value_at(int i) const;

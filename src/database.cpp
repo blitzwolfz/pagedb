@@ -188,7 +188,8 @@ Result<std::vector<KVPair>> Database::scan(std::string_view start_inclusive,
     if (closed_) {
         return Result<std::vector<KVPair>>(Status::Internal("database is closed"));
     }
-    if (start_inclusive.size() > MAX_KEY_SIZE || end_exclusive.size() > MAX_KEY_SIZE) {
+    if (start_inclusive.size() > MAX_KEY_SIZE ||
+        end_exclusive.size() > MAX_KEY_SIZE) {
         return Result<std::vector<KVPair>>(
             Status::InvalidArgument("key length must be 1 to 64 bytes"));
     }

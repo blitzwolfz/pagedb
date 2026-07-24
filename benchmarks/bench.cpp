@@ -60,8 +60,8 @@ static void report(const char* name, long ops, double seconds,
     std::sort(lat.begin(), lat.end());
     double p50 = lat[lat.size() / 2];
     double p99 = lat[(size_t)((double)lat.size() * 0.99)];
-    printf("%-22s %9ld ops %8.2f s %12.0f ops/s  p50 %7.2f us  p99 %8.2f us\n",
-           name, ops, seconds, (double)ops / seconds, p50, p99);
+    printf("%-22s %9ld ops %8.2f s %12.0f ops/s  p50 %7.2f us  p99 %8.2f us\n", name,
+           ops, seconds, (double)ops / seconds, p50, p99);
 }
 
 static std::unique_ptr<Database> open_db(const std::string& path, const Options& o) {
@@ -238,7 +238,8 @@ static void bench_threads(const std::string& path, const Options& o) {
         std::vector<long> done((size_t)t, 0);
         Clock::time_point start = Clock::now();
         for (int i = 0; i < t; i++) {
-            threads.push_back(std::thread(reader_work, db.get(), &local, i, &done[(size_t)i]));
+            threads.push_back(
+                std::thread(reader_work, db.get(), &local, i, &done[(size_t)i]));
         }
         long total = 0;
         for (int i = 0; i < t; i++) {
@@ -267,7 +268,8 @@ static void bench_cache_sweep(const std::string& path, const Options& o) {
         Clock::time_point start = Clock::now();
         for (int k = 0; k < local.ops; k++) {
             int n = (int)(rng.next() % (unsigned)local.ops);
-            Result<std::optional<std::string>> r = db->get(make_key(n, local.key_size));
+            Result<std::optional<std::string>> r =
+                db->get(make_key(n, local.key_size));
             if (!r.ok()) {
                 exit(1);
             }
@@ -334,8 +336,9 @@ int main(int argc, char** argv) {
         } else if (strcmp(argv[i], "--only") == 0 && i + 1 < argc) {
             o.only = argv[++i];
         } else {
-            printf("usage: bench [--ops n] [--pool n] [--durable 0|1] "
-                   "[--threads n] [--value-size n] [--path file] [--only name]\n");
+            printf(
+                "usage: bench [--ops n] [--pool n] [--durable 0|1] "
+                "[--threads n] [--value-size n] [--path file] [--only name]\n");
             return 1;
         }
     }

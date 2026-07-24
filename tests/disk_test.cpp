@@ -1,7 +1,6 @@
-#include "pagedb/disk_manager.hpp"
-
 #include <string.h>
 
+#include "pagedb/disk_manager.hpp"
 #include "test_util.hpp"
 
 using namespace pagedb;

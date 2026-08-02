@@ -86,6 +86,9 @@ static void test_all_pinned(const std::string& path) {
     CHECK(!r3.ok());
     CHECK(r3.status().code() == Code::PoolExhausted);
 
+    // the failed new_page must not eat a page id
+    CHECK(dm.page_count() == 3);
+
     a.drop();
     Result<PageGuard> r4 = pool.new_page();
     CHECK(r4.ok());

@@ -202,8 +202,13 @@ Result<PageGuard> BufferPool::new_page() {
 
     page_id_t id = NO_PAGE;
     MetaPage& meta = disk_->meta();
+    bool from_free_list = false;
+    uint8_t scratch[PAGE_SIZE];
+    memset(scratch, 0, PAGE_SIZE);
+    scratch[0] = PAGE_TYPE_FREE;
 
     if (meta.free_list_head != NO_PAGE) {
+        from_free_list = true;
         id = meta.free_list_head;
         page_id_t next = NO_PAGE;
         std::unordered_map<page_id_t, size_t>::iterator cached = table_.find(id);
@@ -240,6 +245,15 @@ Result<PageGuard> BufferPool::new_page() {
     } else {
         Status s = pick_victim(&frame);
         if (!s.ok()) {
+            // Give the page back, otherwise it is lost for good.
+            if (from_free_list) {
+                put_u32(scratch + FREE_NEXT_OFFSET, meta.free_list_head);
+                disk_->write_page(id, scratch);
+                meta.free_list_head = id;
+                meta.free_page_count++;
+            } else if (id + 1 == meta.page_count) {
+                meta.page_count--;
+            }
             return Result<PageGuard>(s);
         }
         table_[id] = frame;

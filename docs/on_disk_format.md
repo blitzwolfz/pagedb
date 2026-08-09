@@ -36,7 +36,7 @@ Leaf and internal nodes of the B+ tree use the same header.
 | 4 | 2 | start of the cell area |
 | 6 | 2 | bytes lost by removed cells |
 | 8 | 4 | internal: right most child. leaf: next leaf id, 0 at the end |
-| 12 | 8 | page lsn |
+| 12 | 8 | page lsn, written as 0 and not used by the current recovery |
 | 20 | 4 | unused |
 
 After the header comes one 2 byte slot per cell. A slot is the offset of the
@@ -55,3 +55,22 @@ are greater or equal to the last key.
 
 A page on the free list has page type 4 and the id of the next free page at
 offset 8. The meta page points at the first free page.
+
+## Log file
+
+The log lives next to the database file and is called `<database>.wal`. It is
+only appended to and is emptied by a checkpoint. A record looks like this:
+
+| offset | size | field |
+|---|---|---|
+| 0 | 4 | magic `WAL1` |
+| 4 | 8 | log sequence number |
+| 12 | 1 | record type: 1 page image, 2 commit |
+| 13 | 3 | unused |
+| 16 | 4 | page id, 0 for a commit record |
+| 20 | 4 | payload length |
+| 24 | 4 | crc32 of the first 24 header bytes with this field as 0, plus the payload |
+| 28 | n | payload, a whole page for a page image record |
+
+One operation writes a page image for every page it changed and then one
+commit record. How the log is replayed is written in `recovery_design.md`.

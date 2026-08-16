@@ -26,6 +26,17 @@ struct DatabaseOptions {
     std::size_t checkpoint_bytes = 64ull * 1024 * 1024;
 };
 
+struct Stats {
+    uint64_t pool_hits = 0;
+    uint64_t pool_misses = 0;
+    uint64_t pool_evictions = 0;
+    uint64_t pool_writes = 0;
+    uint64_t wal_bytes = 0;
+    uint64_t wal_commits = 0;
+    uint32_t page_count = 0;
+    uint32_t free_pages = 0;
+};
+
 // One open database file. Reads can run at the same time, writes are done one
 // after the other.
 class Database {
@@ -48,6 +59,8 @@ public:
     // Walks the tree and checks its rules. Used by the tests.
     Status verify();
     Status close();
+
+    Stats stats();
 
     const BufferPool& pool() const { return *pool_; }
     const WalManager& wal() const { return *wal_; }

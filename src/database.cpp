@@ -235,6 +235,23 @@ Status Database::checkpoint_locked() {
     return s;
 }
 
+Stats Database::stats() {
+    std::shared_lock<std::shared_mutex> lock(mu_);
+    Stats out;
+    if (closed_ || pool_ == 0) {
+        return out;
+    }
+    out.pool_hits = pool_->hits();
+    out.pool_misses = pool_->misses();
+    out.pool_evictions = pool_->evictions();
+    out.pool_writes = pool_->writes();
+    out.wal_bytes = wal_->bytes_written();
+    out.wal_commits = wal_->commits();
+    out.page_count = disk_->page_count();
+    out.free_pages = disk_->meta().free_page_count;
+    return out;
+}
+
 Status Database::verify() {
     std::shared_lock<std::shared_mutex> lock(mu_);
     if (closed_ || tree_ == 0) {

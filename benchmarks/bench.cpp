@@ -140,10 +140,10 @@ static void bench_get(const std::string& path, const Options& o) {
     }
     double seconds = std::chrono::duration<double>(Clock::now() - start).count();
     report("random get", o.ops, seconds, lat);
+    Stats st = db->stats();
     printf("    buffer pool: %llu hits, %llu misses, %llu evictions\n",
-           (unsigned long long)db->pool().hits(),
-           (unsigned long long)db->pool().misses(),
-           (unsigned long long)db->pool().evictions());
+           (unsigned long long)st.pool_hits, (unsigned long long)st.pool_misses,
+           (unsigned long long)st.pool_evictions);
     db->close();
 }
 
@@ -275,8 +275,9 @@ static void bench_cache_sweep(const std::string& path, const Options& o) {
             }
         }
         double seconds = std::chrono::duration<double>(Clock::now() - start).count();
-        double hit_rate = 100.0 * (double)db->pool().hits() /
-                          (double)(db->pool().hits() + db->pool().misses());
+        Stats st = db->stats();
+        double hit_rate = 100.0 * (double)st.pool_hits /
+                          (double)(st.pool_hits + st.pool_misses);
         char name[64];
         snprintf(name, sizeof(name), "get, pool %zu pages", sizes[i]);
         std::vector<double> empty;

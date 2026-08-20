@@ -353,6 +353,37 @@ static void test_delete_everything(const std::string& path) {
     CHECK_OK(dm.close());
 }
 
+// The pool is much smaller than the tree, so almost every page access has to
+// read from the file.
+static void test_pool_smaller_than_tree(const std::string& path) {
+    const int N = 5000;
+    DiskManager dm;
+    CHECK_OK(dm.open(path));
+    BufferPool pool(&dm, 16);
+    BTree tree(&dm, &pool);
+
+    for (int i = 0; i < N; i++) {
+        put(tree, make_key(i), std::string(80, 'x'));
+    }
+    CHECK(pool.evictions() > 100);
+    CHECK_OK(tree.check());
+
+    for (int i = 0; i < N; i += 3) {
+        expect(tree, make_key(i), std::string(80, 'x'));
+    }
+    for (int i = 0; i < N; i += 2) {
+        CHECK_OK(tree.remove(make_key(i)));
+    }
+    CHECK_OK(tree.check());
+
+    std::vector<KVPair> out;
+    CHECK_OK(tree.scan("", "zzz", &out));
+    CHECK(out.size() == (size_t)N / 2);
+
+    CHECK_OK(pool.flush_all());
+    CHECK_OK(dm.close());
+}
+
 int main() {
     std::string path = temp_path("btree");
     test_small_tree(path);
@@ -368,6 +399,8 @@ int main() {
     test_delete(path);
     remove_db(path);
     test_delete_everything(path);
+    remove_db(path);
+    test_pool_smaller_than_tree(path);
     remove_db(path);
     for (unsigned seed = 1; seed <= 3; seed++) {
         test_against_map(path, seed);

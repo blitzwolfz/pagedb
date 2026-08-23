@@ -1,6 +1,7 @@
 #include <string.h>
 
 #include "pagedb/disk_manager.hpp"
+#include "pagedb/crc32.hpp"
 #include "test_util.hpp"
 
 using namespace pagedb;
@@ -65,12 +66,54 @@ static void test_truncated_file(const std::string& path) {
     CHECK_CODE(dm.open(path), Code::Corruption);
 }
 
+// Writes a different format version into the meta page and fixes the
+// checksum, so only the version check can reject the file.
+static void test_bad_version(const std::string& path) {
+    DiskManager dm;
+    CHECK_OK(dm.open(path));
+    CHECK_OK(dm.close());
+
+    uint8_t page[PAGE_SIZE];
+    FILE* f = fopen(path.c_str(), "r+");
+    CHECK(f != NULL);
+    CHECK(fread(page, 1, PAGE_SIZE, f) == PAGE_SIZE);
+    put_u32(page + 8, 99);
+    put_u32(page + PAGE_SIZE - 4, crc32(page, PAGE_SIZE - 4));
+    rewind(f);
+    CHECK(fwrite(page, 1, PAGE_SIZE, f) == PAGE_SIZE);
+    fclose(f);
+
+    DiskManager dm2;
+    Status s = dm2.open(path);
+    CHECK(s.code() == Code::Corruption);
+    CHECK(s.message().find("version") != std::string::npos);
+}
+
+static void test_broken_checksum(const std::string& path) {
+    DiskManager dm;
+    CHECK_OK(dm.open(path));
+    CHECK_OK(dm.close());
+
+    FILE* f = fopen(path.c_str(), "r+");
+    CHECK(f != NULL);
+    CHECK(fseek(f, 100, SEEK_SET) == 0);
+    fputc(0x41, f);
+    fclose(f);
+
+    DiskManager dm2;
+    CHECK_CODE(dm2.open(path), Code::Corruption);
+}
+
 int main() {
     std::string path = temp_path("disk");
     test_create_and_reopen(path);
     test_bad_page_id(path);
     test_truncated_file(path);
     test_bad_magic(path);
+    remove_db(path);
+    test_bad_version(path);
+    remove_db(path);
+    test_broken_checksum(path);
     remove_db(path);
     printf("disk_test ok\n");
     return 0;

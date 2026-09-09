@@ -226,17 +226,11 @@ struct Rng {
     }
 };
 
-// Does the same operations on the tree and on a std::map and compares them.
-static void test_against_map(const std::string& path, unsigned seed) {
-    DiskManager dm;
-    CHECK_OK(dm.open(path));
-    BufferPool pool(&dm, 32);
-    BTree tree(&dm, &pool);
-
-    std::map<std::string, std::string> model;
-    Rng rng(seed);
-
-    for (int step = 0; step < 20000; step++) {
+// One round of random operations against the tree and the same operations
+// against a std::map.
+static void random_steps(BTree& tree, std::map<std::string, std::string>& model,
+                         Rng& rng, int steps) {
+    for (int step = 0; step < steps; step++) {
         unsigned op = rng.next() % 100;
         char kbuf[16];
         snprintf(kbuf, sizeof(kbuf), "k%05u", rng.next() % 1500);
@@ -273,8 +267,7 @@ static void test_against_map(const std::string& path, unsigned seed) {
             CHECK_OK(tree.scan(sbuf, ebuf, &out));
 
             std::vector<KVPair> want;
-            std::map<std::string, std::string>::iterator it =
-                model.lower_bound(sbuf);
+            std::map<std::string, std::string>::iterator it = model.lower_bound(sbuf);
             while (it != model.end() && it->first < std::string(ebuf)) {
                 KVPair kv;
                 kv.key = it->first;
@@ -293,10 +286,9 @@ static void test_against_map(const std::string& path, unsigned seed) {
             CHECK_OK(tree.check());
         }
     }
+}
 
-    CHECK_OK(tree.check());
-
-    // everything the model has must be in the tree and nothing more
+static void compare_all(BTree& tree, std::map<std::string, std::string>& model) {
     std::vector<KVPair> all;
     CHECK_OK(tree.scan("", "zzzzzz", &all));
     CHECK(all.size() == model.size());
@@ -307,19 +299,41 @@ static void test_against_map(const std::string& path, unsigned seed) {
         CHECK(all[i].value == it->second);
         i++;
     }
+}
 
-    // close, reopen and compare again
-    CHECK_OK(pool.flush_all());
-    CHECK_OK(dm.close());
+// Runs random operations, closes the file, opens it again and keeps going
+// with the same model.
+static void test_against_map(const std::string& path, unsigned seed) {
+    std::map<std::string, std::string> model;
+    Rng rng(seed);
+
+    {
+        DiskManager dm;
+        CHECK_OK(dm.open(path));
+        BufferPool pool(&dm, 32);
+        BTree tree(&dm, &pool);
+
+        random_steps(tree, model, rng, 20000);
+        CHECK_OK(tree.check());
+        compare_all(tree, model);
+
+        CHECK_OK(pool.flush_all());
+        CHECK_OK(dm.close());
+    }
 
     DiskManager dm2;
     CHECK_OK(dm2.open(path));
     BufferPool pool2(&dm2, 32);
     BTree tree2(&dm2, &pool2);
+
     CHECK_OK(tree2.check());
-    std::vector<KVPair> all2;
-    CHECK_OK(tree2.scan("", "zzzzzz", &all2));
-    CHECK(all2.size() == model.size());
+    compare_all(tree2, model);
+
+    random_steps(tree2, model, rng, 10000);
+    CHECK_OK(tree2.check());
+    compare_all(tree2, model);
+
+    CHECK_OK(pool2.flush_all());
     CHECK_OK(dm2.close());
 }
 

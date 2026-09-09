@@ -416,7 +416,7 @@ int main() {
     remove_db(path);
     test_pool_smaller_than_tree(path);
     remove_db(path);
-    for (unsigned seed = 1; seed <= 3; seed++) {
+    for (unsigned seed = 1; seed <= 5; seed++) {
         test_against_map(path, seed);
         remove_db(path);
     }

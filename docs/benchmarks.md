@@ -91,5 +91,13 @@ internal node and the leaf into the log.
 - after: 4885 log bytes per insert, 57102 inserts per second
 
 The change was to read pages read only while walking down and only ask for a
-writable pointer in the node that really changes. The same measurement was
-run before and after with `--ops 100000 --durable 0` on the same machine.
+writable pointer in the node that really changes. Both runs inserted 100000
+records without fsync. The log bytes come from the log byte counter in
+`Database::stats`, divided by the number of inserts. The commit that made the
+change is `a5909a5`, so the first line can be measured again by going back to
+the commit before it.
+
+The same run through the `bench` program, which also measures the time of
+every single operation, gives 52578 inserts per second:
+
+    ./build/bench --ops 100000 --durable 0 --only seq

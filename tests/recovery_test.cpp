@@ -173,6 +173,36 @@ static void test_garbage_in_the_log(const std::string& path) {
     CHECK_OK(db->close());
 }
 
+// After a checkpoint the database file alone has to be enough, so the test
+// throws the log away and opens the database again.
+static void test_checkpoint_makes_the_log_useless(const std::string& path) {
+    const int N = 3000;
+    {
+        std::unique_ptr<Database> db = open_db(path);
+        for (int i = 0; i < N; i++) {
+            CHECK_OK(db->put(key_of(i), value_of(i)));
+        }
+        CHECK_OK(db->checkpoint());
+
+        struct stat st;
+        CHECK(stat((path + ".wal").c_str(), &st) == 0);
+        CHECK(st.st_size == 0);
+        CHECK_OK(db->close());
+    }
+
+    CHECK(unlink((path + ".wal").c_str()) == 0);
+
+    std::unique_ptr<Database> db = open_db(path);
+    CHECK_OK(db->verify());
+    for (int i = 0; i < N; i++) {
+        Result<std::optional<std::string>> g = db->get(key_of(i));
+        CHECK(g.ok());
+        CHECK(g.value().has_value());
+        CHECK(g.value().value() == value_of(i));
+    }
+    CHECK_OK(db->close());
+}
+
 int main() {
     std::string path = temp_path("recovery");
     test_kill_while_writing(path);
@@ -182,6 +212,8 @@ int main() {
     test_broken_log_tail(path);
     remove_db(path);
     test_garbage_in_the_log(path);
+    remove_db(path);
+    test_checkpoint_makes_the_log_useless(path);
     remove_db(path);
     printf("recovery_test ok\n");
     return 0;

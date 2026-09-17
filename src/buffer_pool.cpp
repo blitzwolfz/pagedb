@@ -7,7 +7,6 @@ namespace pagedb {
 // A page on the free list keeps the next free page id at offset 8, which is
 // the same place the node header keeps its extra page id.
 static const size_t FREE_NEXT_OFFSET = 8;
-static const uint8_t PAGE_TYPE_FREE = 4;
 
 PageGuard::~PageGuard() {
     drop();

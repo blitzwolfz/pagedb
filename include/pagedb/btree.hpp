@@ -11,11 +11,6 @@
 
 namespace pagedb {
 
-const uint8_t PAGE_TYPE_META = 1;
-const uint8_t PAGE_TYPE_INTERNAL = 2;
-const uint8_t PAGE_TYPE_LEAF = 3;
-const uint8_t PAGE_TYPE_FREE_PAGE = 4;
-
 const size_t NODE_HEADER_SIZE = 24;
 const size_t MAX_KEY_SIZE = 64;
 const size_t MAX_VALUE_SIZE = 256;

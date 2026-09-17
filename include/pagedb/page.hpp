@@ -10,6 +10,12 @@ namespace pagedb {
 typedef uint32_t page_id_t;
 
 const size_t PAGE_SIZE = 4096;
+
+const uint8_t PAGE_TYPE_META = 1;
+const uint8_t PAGE_TYPE_INTERNAL = 2;
+const uint8_t PAGE_TYPE_LEAF = 3;
+const uint8_t PAGE_TYPE_FREE = 4;
+
 const page_id_t META_PAGE_ID = 0;
 const page_id_t NO_PAGE = 0;
 

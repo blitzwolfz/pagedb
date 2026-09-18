@@ -32,6 +32,17 @@ recently used unpinned frame is taken when a new page is needed, and it is
 written back to the file first when it is dirty. The caller gets a
 `PageGuard` that releases the pin in its destructor.
 
+## Write ahead log
+
+The log sits next to the disk manager and is part of every write. A `put` or
+a `remove` first changes the pages in the buffer pool, then writes the new
+content of those pages into the log, then a commit record. Only after that
+the call returns. The buffer pool is not allowed to write a page of an
+operation that has not committed yet into the database file, so the file
+never holds half an operation. A checkpoint writes all dirty pages into the
+file, syncs it and empties the log. What a crash can and can not lose is in
+`recovery_design.md`.
+
 ## Disk manager
 
 Opens the file, takes an exclusive lock so only one process writes, and does

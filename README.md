@@ -68,6 +68,18 @@ Apple M3, 200000 records of 16 byte keys and 100 byte values, one thread:
 The full setup, the cache and thread sweeps and the recovery time are in
 `docs/benchmarks.md`.
 
+## What works
+
+Insert, lookup, replace, delete and ordered range scan, all kept in one file.
+Pages are freed on delete and used again. A crash of the process after a
+`put` or `remove` that returned `Ok` keeps that write, which is tested by
+killing a child process with `SIGKILL`. Reads may run in parallel, writes run
+one after the other. The tests also run under the address, undefined
+behaviour and thread sanitizers.
+
+Passing these tests does not mean the code has no bugs. What is missing or
+weak is written down in `docs/limitations.md`.
+
 ## Documents
 
 - `docs/architecture.md` what the four layers do and in which order the locks
